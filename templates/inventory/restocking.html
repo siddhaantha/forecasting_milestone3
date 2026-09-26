@@ -76,9 +76,12 @@
                 </td>
                 <td><span class="badge-status {{ p.pcls }}">{{ p.priority }}</span></td>
                 <td>
-                    <a href="{{ url_for('inventory.index') }}" class="btn btn-sm btn-primary">
+                    <form action="{{ url_for('inventory.restock_product', product_id=p.id) }}" method="POST" class="m-0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                        <button type="submit" class="btn btn-sm btn-primary">
                         <i class="bi bi-plus-lg me-1"></i>Restock
-                    </a>
+                        </button>
+                    </form>
                 </td>
             </tr>
             {% endfor %}

@@ -27,3 +27,15 @@ def index():
         page_title="Notifications", active_menu="notifications",
         notifications_list=notifications,
     )
+
+
+
+@bp.route("/<int:notification_id>/delete", methods=["POST"])
+@login_required
+def delete(notification_id):
+    user = get_current_user()
+    
+    # Deletes the notification ONLY if the user_id matches the logged-in user
+    dbQuery("DELETE FROM notifications WHERE id=? AND user_id=?", (notification_id, user["id"]))
+    
+    return redirect(url_for("notifications.index"))

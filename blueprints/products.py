@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from db import dbFetchAll, dbFetchOne, dbInsert, dbUpdate, dbQuery
-from utils import login_required, verify_csrf, get_current_user
+from utils import login_required, verify_csrf, get_current_user, notify_low_stock
 
 bp = Blueprint("products", __name__)
 
@@ -44,10 +44,16 @@ def index():
                         "quantity": data["stock_quantity"], "reference": "Initial Stock",
                         "moved_by": get_current_user()["id"],
                     })
+                notify_low_stock(data, None)
                 flash("Product added successfully.", "success")
             else:
                 pid = int(request.form.get("product_id") or 0)
+                previous = dbFetchOne("SELECT * FROM products WHERE id=?", (pid,))
                 dbUpdate("products", data, "id = ?", (pid,))
+                if previous:
+                    notify_low_stock(
+                        data, previous["stock_quantity"], previous["min_stock_level"]
+                    )
                 flash("Product updated successfully.", "success")
             return redirect(url_for("products.index"))
 

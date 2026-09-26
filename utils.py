@@ -6,7 +6,7 @@ from functools import wraps
 from datetime import datetime, date
 from flask import session, redirect, url_for, flash, request, abort
 
-from db import dbFetchOne, dbFetchAll
+from db import dbFetchOne, dbFetchAll, dbInsert
 
 
 # ---- Session / Auth ----
@@ -135,6 +135,30 @@ def get_low_stock_count() -> int:
         "SELECT COUNT(*) AS cnt FROM products WHERE stock_quantity <= min_stock_level AND status='active'"
     )
     return int(row["cnt"]) if row else 0
+
+
+def notify_low_stock(product, previous_stock, previous_minimum=None):
+    """Notify active users when a product crosses into the low-stock range."""
+    stock = int(product["stock_quantity"])
+    minimum = int(product["min_stock_level"])
+    was_low = (
+        previous_stock is not None
+        and int(previous_stock) <= int(previous_minimum)
+    )
+    if stock > minimum or was_low:
+        return
+
+    users = dbFetchAll("SELECT id FROM users WHERE status='active'")
+    for user in users:
+        dbInsert("notifications", {
+            "user_id": user["id"],
+            "type": "low_stock",
+            "title": "Low Stock Alert",
+            "message": (
+                f"{product['name']} is below its minimum stock level "
+                f"({stock} units left; minimum {minimum})."
+            ),
+        })
 
 
 # ---- Forecasting Algorithms ----

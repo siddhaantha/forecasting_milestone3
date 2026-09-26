@@ -19,13 +19,22 @@
                 <div class="text-secondary" style="font-size:13.5px;">{{ n.message }}</div>
                 <div class="text-muted" style="font-size:11px;margin-top:4px;">{{ fmt_datetime(n.created_at) }}</div>
             </div>
-            {% if not n.is_read %}
-            <span class="badge bg-primary" style="height:fit-content;">New</span>
-            {% endif %}
+            
+            <div class="d-flex align-items-center gap-2">
+                {% if not n.is_read %}
+                <span class="badge bg-primary" style="height:fit-content;">New</span>
+                {% endif %}
+                
+                <!-- NEW DELETE FORM -->
+                <form action="{{ url_for('notifications.delete', notification_id=n.id) }}" method="POST" style="margin: 0;">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" onclick="return confirm('Delete this notification?');">
+                        Delete
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 {% endfor %}
 {% endif %}
-</div>
 
 {% endblock %}

@@ -1,7 +1,7 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
-from db import dbFetchAll, dbFetchOne, dbInsert, dbUpdate
-from utils import login_required, verify_csrf, get_current_user
+from db import dbFetchAll, dbFetchOne, dbInsert, dbUpdate, get_db
+from utils import login_required, verify_csrf, get_current_user, notify_low_stock
 
 bp = Blueprint("inventory", __name__)
 
@@ -18,6 +18,7 @@ def index():
         if product_id and qty > 0:
             product = dbFetchOne("SELECT * FROM products WHERE id=?", (product_id,))
             if product:
+                previous_stock = product["stock_quantity"]
                 if movement_type == "out":
                     new_qty = max(0, product["stock_quantity"] - qty)
                 elif movement_type == "adjustment":
@@ -27,6 +28,8 @@ def index():
                     new_qty = product["stock_quantity"] + qty
 
                 dbUpdate("products", {"stock_quantity": new_qty}, "id = ?", (product_id,))
+                product["stock_quantity"] = new_qty
+                notify_low_stock(product, previous_stock, product["min_stock_level"])
                 dbInsert("inventory", {
                     "product_id": product_id, "movement_type": movement_type,
                     "quantity": qty, "reference": "Manual Adjustment",
@@ -124,3 +127,62 @@ def restocking():
         page_title="Restocking", active_menu="restocking",
         need_restock=need_restock, counts=counts,
     )
+
+
+@bp.route("/restocking/<int:product_id>/restock", methods=["POST"])
+@login_required
+def restock_product(product_id):
+    if not verify_csrf(request.form.get("csrf_token", "")):
+        flash("Invalid request. Please try again.", "error")
+        return redirect(url_for("inventory.restocking"))
+
+    product = dbFetchOne(
+        """
+        SELECT p.*,
+               COALESCE((
+                   SELECT AVG(si.quantity)
+                   FROM sales_items si JOIN sales sa ON sa.id=si.sale_id
+                   WHERE si.product_id=p.id AND sa.sale_date >= date('now','-30 days')
+               ),0) AS avg_monthly_sales
+        FROM products p
+        WHERE p.id=? AND p.status='active' AND p.stock_quantity <= p.min_stock_level
+        """,
+        (product_id,),
+    )
+    if not product:
+        flash("This product no longer needs restocking.", "info")
+        return redirect(url_for("inventory.restocking"))
+
+    suggested = max(
+        int(product["reorder_quantity"] or 0),
+        round((product["avg_monthly_sales"] or 0) * 2),
+    )
+    if suggested <= 0:
+        flash("The suggested reorder quantity must be greater than zero.", "error")
+        return redirect(url_for("inventory.restocking"))
+
+    new_quantity = product["stock_quantity"] + suggested
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE products SET stock_quantity=? WHERE id=?",
+            (new_quantity, product_id),
+        )
+        db.execute(
+            """
+            INSERT INTO inventory
+                (product_id, movement_type, quantity, reference, notes, moved_by)
+            VALUES (?, 'in', ?, 'Restocking', 'Suggested reorder quantity', ?)
+            """,
+            (product_id, suggested, get_current_user()["id"]),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    flash(
+        f"Restocked {product['name']} by {suggested} units. New stock: {new_quantity}.",
+        "success",
+    )
+    return redirect(url_for("inventory.restocking"))

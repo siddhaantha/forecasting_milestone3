@@ -4,7 +4,7 @@ from datetime import date
 from flask import Blueprint, render_template, request, redirect, url_for, flash
 
 from db import dbFetchAll, dbFetchOne, dbInsert, dbUpdate, get_db
-from utils import login_required, verify_csrf, get_current_user
+from utils import login_required, verify_csrf, get_current_user, notify_low_stock
 
 bp = Blueprint("sales", __name__)
 
@@ -52,9 +52,13 @@ def index():
                         "sale_id": sale_id, "product_id": pid, "quantity": qty,
                         "unit_price": price, "total_price": price * qty,
                     })
-                    prod = dbFetchOne("SELECT stock_quantity FROM products WHERE id=?", (pid,))
+                    prod = dbFetchOne("SELECT * FROM products WHERE id=?", (pid,))
                     new_qty = max(0, (prod["stock_quantity"] if prod else 0) - qty)
                     dbUpdate("products", {"stock_quantity": new_qty}, "id=?", (pid,))
+                    if prod:
+                        previous_stock = prod["stock_quantity"]
+                        prod["stock_quantity"] = new_qty
+                        notify_low_stock(prod, previous_stock, prod["min_stock_level"])
                     dbInsert("inventory", {
                         "product_id": pid, "movement_type": "out", "quantity": qty,
                         "reference": code, "moved_by": get_current_user()["id"],
